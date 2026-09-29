@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String         @id @default(cuid())
+  name      String
+  slug      String         @unique
+  grants    GrantProject[]
+  users     User[]
+  records   ClientRecord[]
+  createdAt DateTime       @default(now())
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String
+  passwordHash   String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+}
+
+model ClientRecord {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title          String
+  body           String
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model GrantProject {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title          String
+  funder         String
+  status         GrantStatus      @default(CREATED)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  documents      Document[]
+  drafts         GrantDraft[]
+  events         StatusEvent[]
+  runs           AgentRun[]
+  exports        ExportArtifact[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, updatedAt])
+}
+
+model Document {
+  id          String          @id @default(cuid())
+  grantId     String
+  grant       GrantProject    @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  fileName    String
+  driveFileId String?         @unique
+  storagePath String
+  sha256      String
+  rawText     String
+  pageCount   Int
+  createdAt   DateTime        @default(now())
+  chunks      DocumentChunk[]
+
+  @@index([grantId])
+  @@index([grantId, sha256])
+}
+
+model DocumentChunk {
+  id             String   @id @default(cuid())
+  documentId     String
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content        String
+  pageStart      Int
+  pageEnd        Int
+  chunkIndex     Int
+  wordCount      Int
+  embedding      String?
+  embeddingModel String?
+  embeddingDim   Int?
+  createdAt      DateTime @default(now())
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
+}
+
+model GrantDraft {
+  id             String           @id @default(cuid())
+  grantId        String
+  grant          GrantProject     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  version        Int
+  prompt         String
+  content        String
+  editedContent  String?
+  status         DraftStatus      @default(PENDING_REVIEW)
+  model          String
+  temperature    Float
+  citationsJson  String
+  factCheckJson  String?
+  googleDocId    String?
+  googleDocUrl   String?
+  reviewSignalId String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  runs           AgentRun[]
+  exports        ExportArtifact[]
+
+  @@unique([grantId, version])
+  @@index([grantId, status])
+}
+
+model StatusEvent {
+  id         String       @id @default(cuid())
+  grantId    String
+  grant      GrantProject @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  fromStatus GrantStatus?
+  toStatus   GrantStatus
+  reason     String
+  createdAt  DateTime     @default(now())
+
+  @@index([grantId, createdAt])
+}
+
+model AgentRun {
+  id        String      @id @default(cuid())
+  grantId   String
+  grant     GrantProject @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  draftId   String?
+  draft     GrantDraft? @relation(fields: [draftId], references: [id], onDelete: SetNull)
+  prompt    String
+  status    String
+  model     String?
+  error     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  steps     AgentStep[]
+
+  @@index([grantId, createdAt])
+}
+
+model AgentStep {
+  id        String   @id @default(cuid())
+  runId     String
+  run       AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  name      String
+  status    String
+  detail    String
+  ordinal   Int
+  createdAt DateTime @default(now())
+
+  @@index([runId, ordinal])
+}
+
+model ExportArtifact {
+  id          String      @id @default(cuid())
+  grantId     String
+  grant       GrantProject @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  draftId     String
+  draft       GrantDraft  @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  format      String
+  storagePath String
+  provider    String
+  externalUrl String?
+  createdAt   DateTime    @default(now())
+
+  @@index([grantId, createdAt])
+}
+
+enum GrantStatus {
+  CREATED
+  UPLOADED
+  PROCESSING
+  RAG_READY
+  DRAFTING
+  PENDING_HUMAN_REVIEW
+  APPROVED
+  EXPORTED
+}
+
+enum DraftStatus {
+  PENDING_REVIEW
+  REJECTED
+  APPROVED
+}
